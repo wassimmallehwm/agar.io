@@ -12,7 +12,7 @@ const PlayerData = require('./classes/PlayerData');
 let orbs = [];
 let players = [];
 let settings = {
-    defaultOrbs :200,
+    defaultOrbs :50,
     defaultSpeed : 8,
     defaultSize : 6,
     defaultZoom : 1.5,
@@ -21,6 +21,15 @@ let settings = {
 }
 initGame();
 
+
+//send message to every connected socket 30 fps
+setInterval(() => {
+    if(players.length > 0){
+        io.to('game').emit('tock', {
+            players
+        });
+    }
+}, 33)
 
 io.sockets.on('connect', (socket) => {
     let player = {};
@@ -34,10 +43,9 @@ io.sockets.on('connect', (socket) => {
         player = new Player(socket.id, playerConfig, playerData);
         players.push(playerData);
 
-        //send message to every connected socket 30 fps
+        //send message to this client 30 fps
         setInterval(() => {
-            io.to('game').emit('tock', {
-                players,
+            socket.emit('ticktock', {
                 playerX: player.playerData.locX,
                 playerY: player.playerData.locY
             });
@@ -68,21 +76,64 @@ io.sockets.on('connect', (socket) => {
             settings
         );
         capturedOrb.then((data) => {
-            //collision
+            //Orbs collision
 
             const orbData = {
                 orbIndex : data,
                 newOrb: orbs[data]
             }
 
+            //change leader board
+            io.sockets.emit('updateLeaderBoard', getLeaderBoard());
             io.sockets.emit('orbSwitch', orbData);
         }).catch(() => {
             // no collision
         })
+
+        //Plzyer Collision
+        let playerDeath = checkForPlayerCollisions(
+            player.playerData,
+            player.playerConfig,
+            players,
+            player.id
+        );
+        playerDeath.then((data) => {
+            //change leader board
+            io.sockets.emit('updateLeaderBoard', getLeaderBoard());
+            // a player was absorbed
+            io.sockets.emit('playerDeath', data);
+        }).catch(() => {
+            //no collision
+        })
+
+    })
+
+    socket.on('disconnect', () => {
+        if(player.playerData){
+            players.forEach((curPlayer, i) => {
+                if(curPlayer.uid == player.playerData.uid){
+                    players.splice(i, 1);
+                }
+            })
+        }
     })
 
     
 })
+
+function getLeaderBoard(){
+    //Sort players
+    players.sort((a, b) => {
+        return b.score - a.score;
+    })
+    let leaderBoard = players.map((curPlayer) => {
+        return {
+            name : curPlayer.name,
+            score : curPlayer.score    
+        }
+    })
+    return leaderBoard;
+}
 
 function initGame(){
 
